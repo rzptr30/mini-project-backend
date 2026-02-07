@@ -36,8 +36,9 @@ npm install
 Buat file `.env` di root folder dengan isi:
 ```env
 MONGODB_URI=mongodb+srv://username:password@cluster.mongodb.net/miniproject?retryWrites=true&w=majority
-JWT_SECRET=your-super-secret-key-change-this
-JWT_EXPIRES_IN=1h
+JWT_SECRET=your-super-secret-key-change-this-minimum-64-characters
+JWT_EXPIRES_IN=15m
+JWT_REFRESH_EXPIRES_IN=7d
 PORT=3000
 ```
 
@@ -57,6 +58,20 @@ npm run start:prod
 ```
 
 Aplikasi akan berjalan di `http://localhost:3000`
+
+### 5. Create Admin User (Optional)
+
+Untuk mengakses admin endpoints, buat user admin terlebih dahulu:
+
+```bash
+npm run create-admin
+```
+
+Default admin credentials:
+- Email: `admin@example.com`
+- Password: `admin123`
+
+**⚠️ IMPORTANT:** Ganti password setelah login pertama kali!
 
 ## 📚 API Endpoints
 
@@ -122,7 +137,8 @@ Aplikasi akan berjalan di `http://localhost:3000`
 **Response Success (200 OK):**
 ```json
 {
-  "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI2OTg2MTJjYTIyNTBiMmE1NjAyNDU0ZDIiLCJlbWFpbCI6InRlc3RAZXhhbXBsZS5jb20iLCJyb2xlIjoidXNlciIsImlhdCI6MTczODc4MjAwMCwiZXhwIjoxNzM4Nzg1NjAwfQ.xxxxxxxxxxxxx",
+  "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "refresh_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
   "user": {
     "id": "698612ca2250b2a5602454d2",
     "email": "user@example.com",
@@ -169,6 +185,8 @@ Authorization: Bearer <access_token>
 }
 ```
 
+---
+
 ### 4. Refresh Token
 
 **Endpoint:** `POST /auth/refresh`
@@ -211,6 +229,73 @@ Authorization: Bearer <access_token>
 ```json
 {
   "message": "Logged out successfully"
+}
+```
+
+---
+
+### 6. Get All Users (Admin Only) 🔐
+
+**Endpoint:** `GET /users`
+
+**Headers:**
+```
+Authorization: Bearer <admin_access_token>
+```
+
+**Query Parameters:**
+- `page` (optional, default: 1) - Page number for pagination
+- `limit` (optional, default: 10) - Number of users per page
+- `search` (optional) - Search users by email (case-insensitive)
+
+**Example Request:**
+```
+GET /users?page=1&limit=10&search=example
+```
+
+**Response Success (200 OK):**
+```json
+{
+  "message": "Users retrieved successfully",
+  "data": [
+    {
+      "_id": "698612ca2250b2a5602454d2",
+      "email": "user@example.com",
+      "role": "user",
+      "createdAt": "2026-02-06T16:11:54.547Z",
+      "updatedAt": "2026-02-06T16:11:54.547Z"
+    },
+    {
+      "_id": "698612ca2250b2a5602454d3",
+      "email": "admin@example.com",
+      "role": "admin",
+      "createdAt": "2026-02-06T15:00:00.000Z",
+      "updatedAt": "2026-02-06T15:00:00.000Z"
+    }
+  ],
+  "pagination": {
+    "total": 25,
+    "page": 1,
+    "limit": 10,
+    "totalPages": 3
+  }
+}
+```
+
+**Response Error - Not Admin (403 Forbidden):**
+```json
+{
+  "statusCode": 403,
+  "message": "You do not have permission to access this resource",
+  "error": "Forbidden"
+}
+```
+
+**Response Error - Unauthorized (401):**
+```json
+{
+  "statusCode": 401,
+  "message": "Unauthorized"
 }
 ```
 
@@ -266,11 +351,15 @@ mini-project-backend/
 │   └── screenshots/          # API testing screenshots
 ├── src/
 │   ├── auth/
+│   │   ├── decorators/
+│   │   │   └── roles.decorator.ts
 │   │   ├── dto/
 │   │   │   ├── login.dto.ts
-│   │   │   └── register.dto.ts
+│   │   │   ├── register.dto.ts
+│   │   │   └── refresh.dto.ts
 │   │   ├── guards/
-│   │   │   └── jwt-auth.guard.ts
+│   │   │   ├── jwt-auth.guard.ts
+│   │   │   └── roles.guard.ts
 │   │   ├── strategies/
 │   │   │   └── jwt.strategy.ts
 │   │   ├── auth.controller.ts
@@ -285,7 +374,8 @@ mini-project-backend/
 │   ├── app.controller.ts
 │   ├── app.module.ts
 │   ├── app.service.ts
-│   └── main.ts
+│   ├── main.ts
+│   └── create-admin.ts
 ├── test/
 ├── .env
 ├── .gitignore
@@ -299,6 +389,7 @@ mini-project-backend/
 - **Password Hashing:** Semua password di-hash menggunakan bcrypt dengan salt rounds 10
 - **JWT Expiration:** Access token berlaku selama 15 menit, refresh token 7 hari
 - **Protected Routes:** Endpoint sensitif dilindungi dengan JWT Guard menggunakan Passport Strategy
+- **Role-Based Access Control:** Admin endpoints dilindungi dengan RolesGuard
 - **Email Validation:** Email divalidasi format dan disimpan dalam lowercase untuk konsistensi
 - **Unique Email:** Database schema memastikan tidak ada duplikasi email (unique index)
 - **No Password Exposure:** Password hash tidak pernah dikembalikan dalam response API
@@ -316,18 +407,19 @@ mini-project-backend/
 Menggunakan **bcrypt dengan 10 salt rounds** untuk mencapai balance antara security dan performance. Salt rounds 10 sudah cukup aman untuk mayoritas aplikasi production.
 
 ### 2. JWT Token Lifecycle
-- **Access token expires dalam 1 jam** - balance antara security dan user experience
+- **Access token expires dalam 15 menit** - balance antara security dan user experience
+- **Refresh token expires dalam 7 hari** - long-lived untuk convenience
 - Token disimpan di client-side (localStorage atau cookies)
-- Untuk production, disarankan menambahkan **refresh token mechanism** untuk auto-renewal
+- Refresh token mechanism implemented untuk auto-renewal
 
 ### 3. Database Schema Design
 - **Email:** unique index, lowercase normalization, required field
 - **Password:** bcrypt hash dengan salt, tidak pernah di-return ke client
-- **Role:** default "user", enum ["user", "admin"] untuk future role-based access control
+- **Role:** default "user", enum ["user", "admin"] untuk role-based access control
 - **Timestamps:** `createdAt` dan `updatedAt` dikelola otomatis oleh Mongoose
 
 ### 4. Error Handling Strategy
-- **Consistent HTTP status codes:** 200 (OK), 201 (Created), 400 (Bad Request), 401 (Unauthorized), 409 (Conflict)
+- **Consistent HTTP status codes:** 200 (OK), 201 (Created), 400 (Bad Request), 401 (Unauthorized), 403 (Forbidden), 409 (Conflict)
 - **Generic error messages** untuk authentication failures (tidak membedakan "email tidak ada" vs "password salah") sebagai security best practice
 - **Validation errors** memberikan detail spesifik untuk membantu debugging di development
 
@@ -340,7 +432,8 @@ Semua response mengikuti struktur yang konsisten:
 // Error (handled by NestJS Exception Filters)
 { statusCode: number, message: string | string[], error: string }
 ```
-### Refresh Token Implementation
+
+### 6. Refresh Token Implementation
 
 **Architecture:**
 - **Two-token system:** Short-lived access token (15 min) + long-lived refresh token (7 days)
@@ -360,7 +453,7 @@ Semua response mengikuti struktur yang konsisten:
 3. When access_token expires → Use refresh_token to get new pair
 4. Logout → Refresh token revoked in database
 
-### Rate Limiting Strategy
+### 7. Rate Limiting Strategy
 
 **Implementation:**
 - Using `@nestjs/throttler` for request rate limiting
@@ -385,39 +478,85 @@ Semua response mengikuti struktur yang konsisten:
 - Implement user-based rate limiting (in addition to IP)
 - Add exponential backoff for repeated violations
 
+### 8. Role-Based Access Control (RBAC)
+
+**Implementation:**
+- Custom `@Roles()` decorator for declarative role specification
+- `RolesGuard` for enforcing role-based access
+- Metadata reflection using NestJS Reflector
+- Works in combination with JWT authentication
+
+**Architecture:**
+```typescript
+// Usage example
+@UseGuards(JwtAuthGuard, RolesGuard)
+@Roles('admin')
+@Get()
+getAllUsers() { ... }
+```
+
+**Security considerations:**
+- RolesGuard always runs AFTER JwtAuthGuard (user must be authenticated first)
+- Role information comes from JWT payload (trusted source)
+- 403 Forbidden returned when user lacks required role
+- Admin endpoints explicitly marked with @Roles('admin')
+
+**Scalability:**
+- Easy to add new roles (e.g., 'moderator', 'manager')
+- Supports multiple roles per endpoint: `@Roles('admin', 'moderator')`
+- Role hierarchy can be implemented if needed
+
 ## 🧪 Testing Guide
 
 ### Manual Testing dengan Postman
 
 1. **Import Collection** (jika tersedia file `.json`)
 2. **Set Base URL:** `http://localhost:3000`
-3. **Test Flow:**
-   - Register user baru
-   - Login dengan kredensial tersebut
-   - Copy `access_token` dari response
-   - Test endpoint `/users/me` dengan Bearer Token
-   - Test endpoint protected tanpa token (harusnya 401)
+3. **Create Admin User:** Run `npm run create-admin`
+4. **Test Flow:**
+   - Register user baru (role: user)
+   - Login as regular user
+   - Try accessing GET /users (should get 403 Forbidden)
+   - Login as admin
+   - Access GET /users (should get 200 OK with user list)
+   - Test pagination and search
 
 ### Test Cases Checklist
 
-- [ ] Register dengan email valid → 201
-- [ ] Register dengan email duplikat → 409
-- [ ] Register dengan email format salah → 400
-- [ ] Register dengan password < 6 karakter → 400
-- [ ] Login dengan kredensial benar → 200 + token
-- [ ] Login dengan password salah → 401
-- [ ] Login dengan email tidak terdaftar → 401
+**Authentication:**
+- [x] Register dengan email valid → 201
+- [x] Register dengan email duplikat → 409
+- [x] Register dengan email format salah → 400
+- [x] Register dengan password < 6 karakter → 400
+- [x] Login dengan kredensial benar → 200 + tokens
+- [x] Login dengan password salah → 401
+- [x] Login dengan email tidak terdaftar → 401
+- [x] Refresh token dengan valid refresh_token → 200 + new tokens
+- [x] Refresh token dengan invalid/expired token → 401
+- [x] Logout → 200 + refresh token revoked
+
+**Authorization:**
 - [ ] Akses `/users/me` tanpa token → 401
 - [ ] Akses `/users/me` dengan token valid → 200 + user data
 - [ ] Akses `/users/me` dengan token expired → 401
+- [ ] Akses `/users` as regular user → 403 Forbidden
+- [ ] Akses `/users` as admin → 200 + user list
+- [ ] Akses `/users` tanpa token → 401
+
+**Admin Endpoints:**
+- [ ] GET /users with pagination (page=1, limit=10) → 200
+- [ ] GET /users with search query → 200 (filtered results)
+- [ ] GET /users as regular user → 403
+- [ ] GET /users with invalid page/limit → 400
 
 ## 📦 Environment Variables
 
 | Variable | Description | Example | Required |
 |----------|-------------|---------|----------|
 | `MONGODB_URI` | MongoDB connection string | `mongodb+srv://user:pass@cluster.mongodb.net/dbname` | Yes |
-| `JWT_SECRET` | Secret key untuk JWT signing | `your-super-secret-key` | Yes |
-| `JWT_EXPIRES_IN` | Token expiration duration | `1h`, `24h`, `7d` | Yes |
+| `JWT_SECRET` | Secret key untuk JWT signing (min 64 characters recommended) | `your-super-secret-key` | Yes |
+| `JWT_EXPIRES_IN` | Access token expiration | `15m`, `1h` | Yes |
+| `JWT_REFRESH_EXPIRES_IN` | Refresh token expiration | `7d`, `30d` | No (default: 7d) |
 | `PORT` | Application port | `3000` | No (default: 3000) |
 
 **Security Note:** Jangan commit file `.env` ke repository! Pastikan `.env` ada di `.gitignore`.
@@ -426,11 +565,11 @@ Semua response mengikuti struktur yang konsisten:
 
 Fitur-fitur yang bisa ditambahkan di masa depan:
 
-- [ ] **Refresh Token Mechanism** - Auto-renewal token tanpa re-login
-- [ ] **Token Revocation (Blacklist)** - Invalidate token saat logout
-- [ ] **Rate Limiting** - Proteksi dari brute force attack pada login endpoint
+- [x] **Refresh Token Mechanism** - Auto-renewal token tanpa re-login ✅
+- [x] **Token Revocation (Blacklist)** - Invalidate token saat logout ✅
+- [x] **Rate Limiting** - Proteksi dari brute force attack pada login endpoint ✅
+- [x] **Role-Based Access Control (RBAC)** - Admin endpoints untuk manage users ✅
 - [ ] **Email Verification** - Konfirmasi email sebelum akses penuh
-- [ ] **Role-Based Access Control (RBAC)** - Admin endpoints untuk manage users
 - [ ] **Forgot Password Feature** - Reset password via email
 - [ ] **Two-Factor Authentication (2FA)** - Extra layer security
 - [ ] **Account Lockout** - Lock account setelah multiple failed login attempts
@@ -440,12 +579,17 @@ Fitur-fitur yang bisa ditambahkan di masa depan:
 - [ ] **Docker Containerization** - Easy deployment dengan Docker
 - [ ] **CI/CD Pipeline** - Automated testing & deployment
 - [ ] **Monitoring & Logging** - Integration dengan tools seperti Winston, Sentry
+- [ ] **User Management Endpoints** - Update, delete users (admin only)
+- [ ] **Redis Integration** - For distributed rate limiting and session management
 
 ## 🐛 Known Issues / Limitations
 
-- Access token tidak bisa di-revoke sebelum expired (solusi: implementasi refresh token + blacklist)
-- Tidak ada rate limiting (rentan terhadap brute force attack)
+- ~~Access token tidak bisa di-revoke sebelum expired~~ ✅ **SOLVED** - Refresh token mechanism implemented
+- ~~Tidak ada rate limiting~~ ✅ **SOLVED** - Rate limiting implemented
+- ~~Tidak ada role-based access control~~ ✅ **SOLVED** - RBAC with RolesGuard implemented
 - Tidak ada email verification (siapapun bisa register dengan email apapun)
+- Rate limiting uses in-memory storage (not suitable for distributed systems without Redis)
+- No user management endpoints yet (update profile, delete user, etc.)
 
 ## 📖 API Documentation
 
@@ -483,4 +627,4 @@ This project is created for **Relove internship assignment** purposes.
 
 **Created with ❤️ using NestJS**
 
-*Last Updated: February 6, 2026*
+*Last Updated: February 7, 2026*

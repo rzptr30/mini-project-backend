@@ -34,4 +34,30 @@ export class UsersService {
       { new: true }
     );
   }
+
+  async findAll(options: { page: number; limit: number; search?: string }) {
+    const { page, limit, search } = options;
+    const skip = (page - 1) * limit;
+
+    const query: any = {};
+    if (search) {
+      query.email = { $regex: search, $options: 'i' }; 
+    }
+
+    const [users, total] = await Promise.all([
+      this.userModel
+        .find(query)
+        .select('-passwordHash -refreshToken -refreshTokenExpiry') 
+        .sort({ createdAt: -1 }) 
+        .skip(skip)
+        .limit(limit)
+        .lean(),
+      this.userModel.countDocuments(query),
+    ]);
+
+    return {
+      users,
+      total,
+    };
+  }
 }
