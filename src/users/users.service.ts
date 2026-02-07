@@ -19,4 +19,19 @@ export class UsersService {
   async findById(id: string) {
     return this.userModel.findById(id);
   }
+
+  async updateRefreshToken(
+    userId: string,
+    refreshToken: string | null,
+    expiryDate: Date | null
+  ) {
+    return this.userModel.findByIdAndUpdate(
+      userId,
+      {
+        refreshToken: refreshToken,
+        refreshTokenExpiry: expiryDate,
+      },
+      { new: true }
+    );
+  }
 }

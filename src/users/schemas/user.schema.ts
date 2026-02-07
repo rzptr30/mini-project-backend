@@ -12,6 +12,12 @@ export class User extends Document {
   @Prop({ default: 'user', enum: ['user', 'admin'] })
   role: string;
 
+  @Prop()
+  refreshToken?: string; 
+
+  @Prop()
+  refreshTokenExpiry?: Date;  
+
   createdAt: Date;
   updatedAt: Date;
 }
