@@ -1,11 +1,14 @@
-import { Controller, Get, Request, UseGuards, NotFoundException } from '@nestjs/common';
+import { Controller, Get, Request, UseGuards } from '@nestjs/common';
+import { SkipThrottle } from '@nestjs/throttler';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { UsersService } from './users.service';
+import { NotFoundException } from '@nestjs/common';
 
 @Controller('users')
 export class UsersController {
   constructor(private usersService: UsersService) {}
 
+  @SkipThrottle() 
   @UseGuards(JwtAuthGuard)
   @Get('me')
   async getProfile(@Request() req) {

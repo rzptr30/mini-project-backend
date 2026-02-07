@@ -169,6 +169,51 @@ Authorization: Bearer <access_token>
 }
 ```
 
+### 4. Refresh Token
+
+**Endpoint:** `POST /auth/refresh`
+
+**Request Body:**
+```json
+{
+  "refresh_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+}
+```
+
+**Response Success (200 OK):**
+```json
+{
+  "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "refresh_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+}
+```
+
+**Response Error (401 Unauthorized):**
+```json
+{
+  "statusCode": 401,
+  "message": "Invalid or expired refresh token"
+}
+```
+
+---
+
+### 5. Logout
+
+**Endpoint:** `POST /auth/logout`
+
+**Headers:**
+```
+Authorization: Bearer <access_token>
+```
+
+**Response (200 OK):**
+```json
+{
+  "message": "Logged out successfully"
+}
+```
+
 ## 📸 API Testing Screenshots
 
 ### Register Endpoint Tests
@@ -252,11 +297,18 @@ mini-project-backend/
 ## 🔐 Security Features
 
 - **Password Hashing:** Semua password di-hash menggunakan bcrypt dengan salt rounds 10
-- **JWT Expiration:** Access token berlaku selama 1 jam (dapat dikonfigurasi di `.env`)
+- **JWT Expiration:** Access token berlaku selama 15 menit, refresh token 7 hari
 - **Protected Routes:** Endpoint sensitif dilindungi dengan JWT Guard menggunakan Passport Strategy
 - **Email Validation:** Email divalidasi format dan disimpan dalam lowercase untuk konsistensi
 - **Unique Email:** Database schema memastikan tidak ada duplikasi email (unique index)
 - **No Password Exposure:** Password hash tidak pernah dikembalikan dalam response API
+- **Token Rotation:** Refresh token di-rotate setiap kali refresh untuk extra security
+- **Token Revocation:** Logout menghapus refresh token dari database
+- **Rate Limiting:** Proteksi dari brute force attack dengan rate limiting:
+  - Global: Max 10 requests per menit
+  - Register: Max 3 attempts per jam per IP
+  - Login: Max 5 attempts per 15 menit per IP
+  - Refresh: Max 10 attempts per menit per IP
 
 ## 💡 Design Decisions
 
@@ -288,6 +340,50 @@ Semua response mengikuti struktur yang konsisten:
 // Error (handled by NestJS Exception Filters)
 { statusCode: number, message: string | string[], error: string }
 ```
+### Refresh Token Implementation
+
+**Architecture:**
+- **Two-token system:** Short-lived access token (15 min) + long-lived refresh token (7 days)
+- **Token rotation:** New refresh token generated on every refresh for security
+- **Database storage:** Refresh tokens hashed and stored in database (can be revoked)
+- **Automatic expiry:** Both tokens have expiration, refresh token expires after 7 days
+
+**Security measures:**
+- Refresh tokens are hashed before storage (like passwords)
+- Token type validation (refresh token cannot be used as access token)
+- Automatic revocation on logout
+- Expiry validation on both JWT level and database level
+
+**Flow:**
+1. Login → Receive both access_token and refresh_token
+2. Use access_token for API requests
+3. When access_token expires → Use refresh_token to get new pair
+4. Logout → Refresh token revoked in database
+
+### Rate Limiting Strategy
+
+**Implementation:**
+- Using `@nestjs/throttler` for request rate limiting
+- IP-based throttling to prevent brute force attacks
+- Different limits for different endpoints based on use case
+
+**Configuration:**
+- **Global limit:** 10 requests/minute for all endpoints
+- **Register endpoint:** 3 requests/hour (prevent mass account creation)
+- **Login endpoint:** 5 requests/15 minutes (prevent credential stuffing)
+- **Refresh endpoint:** 10 requests/minute (normal refresh pattern)
+- **Protected routes:** Rate limiting skipped (already secured by JWT)
+
+**Trade-offs:**
+- **Pro:** Effectively prevents brute force and DDoS attacks
+- **Pro:** Minimal impact on legitimate users
+- **Con:** Users behind shared IP (office/campus) might share the limit
+- **Con:** Requires Redis for distributed systems (currently in-memory)
+
+**Future improvements:**
+- Use Redis for distributed rate limiting
+- Implement user-based rate limiting (in addition to IP)
+- Add exponential backoff for repeated violations
 
 ## 🧪 Testing Guide
 
